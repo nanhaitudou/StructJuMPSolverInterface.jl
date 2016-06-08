@@ -24,6 +24,7 @@ type NonStructJuMPModel <: ModelInterface
     nzh::Int
     g_iter::Int
 
+    init::Function
     write_solution::Function
     get_x0::Function
     numvars::Function
@@ -44,8 +45,8 @@ type NonStructJuMPModel <: ModelInterface
             )
         
         instance.write_solution = function(x)
-            @assert length(x) == getTotalNumVars(m)
             m = instance.model
+            @assert length(x) == getTotalNumVars(m)
             idx = 1
             for i = 0:num_scenarios(m)
                 mm = getModel(m,i)
@@ -57,8 +58,8 @@ type NonStructJuMPModel <: ModelInterface
         end
 
         instance.get_x0 = function(x)
-            @assert length(x) == getTotalNumVars(m)
             m = instance.model
+            @assert length(x) == getTotalNumVars(m)
             idx = 1
             for i = 0:num_scenarios(m)
                 mm = getModel(m,i)
@@ -274,75 +275,78 @@ type NonStructJuMPModel <: ModelInterface
             end
         end
 
-        # initialization  jac
-        col_offset = 0
-        row_offset = 0
-        m = instance.model
-        for i = 0:num_scenarios(m)
-            reverse_map = Dict{Int,Int}()
-            mm = getModel(m,i)
-            for ety in getStructure(mm).othermap
-                reverse_map[ety[2].col] = ety[1].col #child->parent
-            end
-            # @show reverse_map
-            e = get_nlp_evaluator(m,i)
-            # @show "after e"
-            i_jac_I, i_jac_J =  MathProgBase.jac_structure(e)
-            # @show "after strct jac"
-            for idx = 1:length(i_jac_J)
-                jj = i_jac_J[idx]
-                if haskey(reverse_map,jj)
-                    push!(instance.jac_J, reverse_map[jj])
-                else
-                    push!(instance.jac_J, jj + col_offset)
+        instance.init = function()
+            # initialization  jac
+            col_offset = 0
+            row_offset = 0
+            m = instance.model
+            for i = 0:num_scenarios(m)
+                reverse_map = Dict{Int,Int}()
+                mm = getModel(m,i)
+                for ety in getStructure(mm).othermap
+                    reverse_map[ety[2].col] = ety[1].col #child->parent
                 end
-                push!(instance.jac_I, i_jac_I[idx] + row_offset)
-            end
-            push!(instance.nz_jac, length(i_jac_J)) #offset by 1
+                # @show reverse_map
+                e = get_nlp_evaluator(m,i)
+                # @show "after e"
+                i_jac_I, i_jac_J =  MathProgBase.jac_structure(e)
+                # @show "after strct jac"
+                for idx = 1:length(i_jac_J)
+                    jj = i_jac_J[idx]
+                    if haskey(reverse_map,jj)
+                        push!(instance.jac_J, reverse_map[jj])
+                    else
+                        push!(instance.jac_J, jj + col_offset)
+                    end
+                    push!(instance.jac_I, i_jac_I[idx] + row_offset)
+                end
+                push!(instance.nz_jac, length(i_jac_J)) #offset by 1
 
-            col_offset += getNumVars(m,i)
-            row_offset += getNumCons(m,i)
+                col_offset += getNumVars(m,i)
+                row_offset += getNumCons(m,i)
+            end
+
+            #initialization hess
+            offset = 0
+            for i = 0:num_scenarios(m)
+                reverse_map = Dict{Int,Int}()
+                mm = getModel(m,i)
+                for ety in getStructure(mm).othermap
+                    reverse_map[ety[2].col] = ety[1].col #child->parent
+                end
+
+                e = get_nlp_evaluator(m,i)
+                i_hess_I, i_hess_J =  MathProgBase.hesslag_structure(e)
+                for idx = 1:length(i_hess_I)
+                    ii = i_hess_I[idx]
+                    jj = i_hess_J[idx]
+
+                    if haskey(reverse_map,ii)
+                        new_ii = reverse_map[ii]
+                    else
+                        new_ii = ii + offset
+                    end
+
+                    if haskey(reverse_map,jj)
+                        new_jj = reverse_map[jj]
+                    else
+                        new_jj = jj + offset
+                    end
+
+                    if(new_ii>new_jj)
+                        push!(instance.hess_I,new_ii)
+                        push!(instance.hess_J,new_jj)
+                    else
+                        push!(instance.hess_I,new_jj)
+                        push!(instance.hess_J,new_ii)
+                    end
+                end
+                push!(instance.nz_hess, length(i_hess_I)) #offset by 1
+
+                offset += getNumVars(m,i)
+            end
         end
 
-        #initialization hess
-        offset = 0
-        for i = 0:num_scenarios(m)
-            reverse_map = Dict{Int,Int}()
-            mm = getModel(m,i)
-            for ety in getStructure(mm).othermap
-                reverse_map[ety[2].col] = ety[1].col #child->parent
-            end
-
-            e = get_nlp_evaluator(m,i)
-            i_hess_I, i_hess_J =  MathProgBase.hesslag_structure(e)
-            for idx = 1:length(i_hess_I)
-                ii = i_hess_I[idx]
-                jj = i_hess_J[idx]
-
-                if haskey(reverse_map,ii)
-                    new_ii = reverse_map[ii]
-                else
-                    new_ii = ii + offset
-                end
-
-                if haskey(reverse_map,jj)
-                    new_jj = reverse_map[jj]
-                else
-                    new_jj = jj + offset
-                end
-
-                if(new_ii>new_jj)
-                    push!(instance.hess_I,new_ii)
-                    push!(instance.hess_J,new_jj)
-                else
-                    push!(instance.hess_I,new_jj)
-                    push!(instance.hess_J,new_ii)
-                end
-            end
-            push!(instance.nz_hess, length(i_hess_I)) #offset by 1
-
-            offset += getNumVars(m,i)
-        end
         return instance  
     end
 end
@@ -350,6 +354,7 @@ end
 function structJuMPSolve(model; suppress_warmings=false,kwargs...)
     # @show typeof(model)
     nm = NonStructJuMPModel(model)
+    nm.init();
     x_L, x_U, g_L, g_U = nm.get_bounds()
     n = getTotalNumVars(model)
     m = getTotalNumCons(model)

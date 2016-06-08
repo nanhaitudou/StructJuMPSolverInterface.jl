@@ -9,7 +9,7 @@ import MPI
 # Struct Model interface
 abstract ModelInterface
 
-export ModelInterface, KnownSolvers, sj_solve, getModel, getVarValue, getVarValues, getNumVars, 
+export ModelInterface, KnownSolvers, SolverStatus, sj_solve, getModel, getVarValue, getVarValues, getNumVars, 
         getNumCons, getTotalNumVars, getTotalNumCons, getLocalScenarioIDs, getLocalChildrenIds,
         getObjectiveVal
 
@@ -20,6 +20,25 @@ const SolverStatus = Dict{Int, Symbol}(
   2=>:Unbounded,
   3=>:IterationExceeded
   )
+
+function sj_init(solver="Unknown")
+  if !haskey(KnownSolvers,solver)
+        Base.warn("Unknow solver: ", solver)
+        Base.error("Known solvers are: ", keys(KnownSolvers))
+  end
+  if solver == "PipsNlp"
+    @show "init MPI"
+    MPI.Init()
+  end
+end
+
+function sj_finalize()
+  if isdefined(:MPI) && MPI.Initialized() && !MPI.Finalized()
+    MPI.Finalize()
+    @show "mpi finalized"
+    @assert MPI.Finalized()
+  end
+end
 
 function sj_solve(model; solver="Unknown", with_prof=false, suppress_warmings=false,kwargs...)
     if !haskey(KnownSolvers,solver)
@@ -34,7 +53,6 @@ function sj_solve(model; solver="Unknown", with_prof=false, suppress_warmings=fa
     else
       return SolverStatus[status]
     end
-    @show getLocalChildrenIds(m)
 
     MPI.Finalize()
 end
@@ -90,7 +108,7 @@ function getObjectiveVal(m)
   # @show x0
   e = get_nlp_evaluator(m,0)
   lobj = MathProgBase.eval_f(e,build_x(m,0,x0,x0))
-  for i in getchildren(m)
+  for i in getLocalChildrenIds(m)
     id = i[1]
     e = get_nlp_evaluator(m,id)
     x1 = getVarValues(m,id)

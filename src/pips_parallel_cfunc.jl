@@ -140,7 +140,7 @@ type PipsNlpProblemStruct
     t_jl_eval_total::Float64
     
     function PipsNlpProblemStruct(comm, model, prof)
-        @show prof
+        # @show prof
         prob = new(C_NULL, model, comm, prof,-3
             ,0.0,0.0,0.0,0.0,0.0
             ,0.0,0.0,0.0,0.0,0.0
@@ -580,6 +580,27 @@ function solveProblemStruct(prob::PipsNlpProblemStruct)
     prob.t_jl_eval_total = report_total_now(prob)
     # @show prob
     return prob.model.get_status()
+end
+
+function getTotalNumVars(prob::PipsNlpProblemStruct)
+    ret = ccall(Libdl.dlsym(libparpipsnlp,:PipsNlpProblemStructGetTotalVars), Cint,
+        (Ptr{Void},),
+        prob.ref)
+    return Int(ret)
+end
+
+function getTotalNumCons(prob::PipsNlpProblemStruct)
+    ret = ccall(Libdl.dlsym(libparpipsnlp,:PipsNlpProblemStructGetTotalCons), Cint,
+        (Ptr{Void},),
+        prob.ref)
+    return Int(ret)
+end
+
+function getObjective(prob::PipsNlpProblemStruct)
+    ret = ccall(Libdl.dlsym(libparpipsnlp,:PipsNlpProblemStructGetObjective), Float64,
+        (Ptr{Void},),
+        prob.ref)
+    return ret
 end
 
 function freeProblemStruct(prob::PipsNlpProblemStruct)

@@ -29,7 +29,7 @@ type StructJuMPModel <: ModelInterface
     # t_sj_eval_h::Float64
     
     # t_sj_write_solution::Float64
-    
+    init::Function
     get_num_scen::Function
     get_sense::Function
     get_status::Function
@@ -63,8 +63,10 @@ type StructJuMPModel <: ModelInterface
             # ,prof,0,0,0,0,0,0,0,0,0
             )
         
-        init_constraints_idx_map(model,instance.id_con_idx_map)
-        
+        instance.init = function()
+            init_constraints_idx_map(model,instance.id_con_idx_map)
+        end
+
         instance.get_num_scen = function()
             return num_scenarios(instance.internalModel)
         end
@@ -558,7 +560,9 @@ function structJuMPSolve(model; with_prof=false, suppress_warmings=false,kwargs.
     if with_prof
         tic()
     end    
-    prob = PipsNlpSolver.createProblemStruct(comm, StructJuMPModel(model), with_prof)
+    mi = StructJuMPModel(model)
+    mi.init()
+    prob = PipsNlpSolver.createProblemStruct(comm, mi, with_prof)
 
     if with_prof
         t_sj_model_init += toq()
